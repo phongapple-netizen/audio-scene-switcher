@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <AssemblyTitle>音频设备切换面板</AssemblyTitle>
     <Product>音频设备切换面板</Product>
     <Description>Windows 音频端点与摄像头偏好场景面板</Description>

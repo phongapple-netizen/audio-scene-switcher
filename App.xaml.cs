@@ -6,6 +6,8 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using AudioPanel.Services;
 using Forms = System.Windows.Forms;
+using DrawingColor = System.Drawing.Color;
+using DrawingFontStyle = System.Drawing.FontStyle;
 
 namespace AudioPanel;
 
@@ -16,6 +18,7 @@ namespace AudioPanel;
 public partial class App : System.Windows.Application
 {
     private Forms.NotifyIcon? _notifyIcon;
+    private Icon? _trayIcon;
     private bool _exitRequested;
     private AppController? _controller;
 
@@ -91,18 +94,47 @@ public partial class App : System.Windows.Application
     private void CreateTrayIcon()
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("打开面板", null, (_, _) => ShowMainWindow());
+        var openItem = menu.Items.Add("打开面板", null, (_, _) => ShowMainWindow());
+        openItem.Font = new Font(openItem.Font, DrawingFontStyle.Bold);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add(new Forms.ToolStripLabel("快速切换场景")
+        {
+            ForeColor = DrawingColor.FromArgb(100, 100, 100)
+        });
+        AddSceneMenuItem(menu, "独立声卡", "independent");
+        AddSceneMenuItem(menu, "显示器", "monitor");
+        AddSceneMenuItem(menu, "视频会议", "meeting");
+        AddSceneMenuItem(menu, "备用设备", "fallback");
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("刷新设备", null, (_, _) =>
+        {
+            if (MainWindow is MainWindow window)
+            {
+                window.RequestRefresh();
+            }
+        });
         menu.Items.Add("退出", null, (_, _) => ExitApplication());
 
+        _trayIcon = AppIconFactory.CreateTrayIcon();
         _notifyIcon = new Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _trayIcon,
             Text = "音频切换面板",
             ContextMenuStrip = menu,
             Visible = true
         };
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
+    }
+
+    private void AddSceneMenuItem(Forms.ContextMenuStrip menu, string name, string sceneId)
+    {
+        menu.Items.Add(name, null, (_, _) =>
+        {
+            if (MainWindow is MainWindow window && window.RequestSceneApply(sceneId))
+            {
+                ShowMainWindow();
+            }
+        });
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -138,8 +170,7 @@ public partial class App : System.Windows.Application
     private void ExitApplication()
     {
         _exitRequested = true;
-        _notifyIcon?.Dispose();
-        _notifyIcon = null;
+        DisposeTrayIcon();
         _controller?.Dispose();
         _controller = null;
         Shutdown();
@@ -147,10 +178,22 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _notifyIcon?.Dispose();
-        _notifyIcon = null;
+        DisposeTrayIcon();
         _controller?.Dispose();
         _controller = null;
         base.OnExit(e);
+    }
+
+    private void DisposeTrayIcon()
+    {
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+            _notifyIcon = null;
+        }
+
+        _trayIcon?.Dispose();
+        _trayIcon = null;
     }
 }

@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using AudioPanel.Models;
+using AudioPanel.Services;
 
 namespace AudioPanel;
 
@@ -34,6 +35,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Icon = AppIconFactory.CreateWindowIcon();
         DataContext = ViewModel;
     }
 
@@ -52,6 +54,23 @@ public partial class MainWindow : Window
 
     public void ReplaceScenes(IEnumerable<AudioScene> scenes, string? selectedSceneId) =>
         ViewModel.ReplaceScenes(scenes, selectedSceneId);
+
+    public bool RequestSceneApply(string sceneId)
+    {
+        var scene = ViewModel.Scenes.FirstOrDefault(candidate => candidate.Id == sceneId);
+        if (scene is null)
+        {
+            SetStatus("找不到请求的场景");
+            return false;
+        }
+
+        ViewModel.SelectScene(scene);
+        SetStatus($"正在从托盘应用场景“{scene.Name}”");
+        SceneApplyRequested?.Invoke(this, new SceneApplyRequestedEventArgs(scene));
+        return true;
+    }
+
+    public void RequestRefresh() => RefreshRequested?.Invoke(this, EventArgs.Empty);
 
     private void SceneButton_Click(object sender, RoutedEventArgs e)
     {
