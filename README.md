@@ -71,3 +71,7 @@ dotnet run --project .\tools\AudioPanel.Diagnostics   # 只读设备诊断
 - Windows 没有所有桌面应用共同遵守的默认摄像头；
 - 场景固定为四个，暂不支持增删；界面只有中文；
 - 未实现单独应用音频路由和蓝牙连接后自动切换。
+
+## 许可证
+
+[MIT](LICENSE)
