@@ -21,9 +21,10 @@ public sealed class SceneFallback
 public sealed class AudioScene : INotifyPropertyChanged
 {
     private bool _isSelected, _isApplied, _isReady;
-    private string _stateText = "正在读取设备";
+    private string _stateText = "正在读取设备", _name = string.Empty;
+    public const int MaxNameLength = 12;
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
-    public string Name { get; set; } = string.Empty;
+    public string Name { get => _name; set => Set(ref _name, value ?? string.Empty, nameof(Name)); }
     public string Description { get; set; } = string.Empty;
     public AudioEndpointSelection Output { get; set; } = new();
     public AudioEndpointSelection Input { get; set; } = new();
@@ -85,8 +86,8 @@ public sealed class AudioPanelConfiguration
     {
         return
         [
-            new() { Id = "independent", Name = "独立声卡", Description = "Audigy 或其他独立声卡" },
-            new() { Id = "monitor", Name = "显示器", Description = "HDMI/显示器音频" },
+            new() { Id = "independent", Name = "独立声卡", Description = "独立声卡或外置声卡" },
+            new() { Id = "monitor", Name = "显示器", Description = "HDMI / DisplayPort 显示器音频" },
             new() { Id = "meeting", Name = "视频会议", Description = "摄像头麦克风与会议输出" },
             new() { Id = "fallback", Name = "备用设备", Description = "设备不可用时的回退选择" }
         ];

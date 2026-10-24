@@ -84,15 +84,19 @@
                         </TextBlock>
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="56"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                            <TextBlock Text="输出" Style="{StaticResource FieldLabel}"/>
-                            <TextBlock Grid.Row="1" Text="输入" Style="{StaticResource FieldLabel}"/>
-                            <TextBlock Grid.Row="2" Text="摄像头" Style="{StaticResource FieldLabel}"/>
-                            <ComboBox x:Name="OutputCombo" Grid.Column="1" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Text="名称" Style="{StaticResource FieldLabel}"/>
+                            <TextBox x:Name="SceneNameBox" Grid.Column="1" Text="{Binding SelectedScene.Name, Mode=OneWay}"
+                                     MaxLength="{x:Static models:AudioScene.MaxNameLength}" AutomationProperties.Name="场景名称"
+                                     ToolTip="按回车或点别处保存" KeyDown="SceneNameBox_KeyDown" LostKeyboardFocus="SceneNameBox_LostKeyboardFocus"/>
+                            <TextBlock Grid.Row="1" Text="输出" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Row="2" Text="输入" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Row="3" Text="摄像头" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="OutputCombo" Grid.Row="1" Grid.Column="1" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
                                       SelectedItem="{Binding SelectedOutput, Mode=TwoWay}" SelectionChanged="Output_SelectionChanged" AutomationProperties.Name="输出设备"/>
-                            <ComboBox x:Name="InputCombo" Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                            <ComboBox x:Name="InputCombo" Grid.Column="1" Grid.Row="2" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
                                       SelectedItem="{Binding SelectedInput, Mode=TwoWay}" SelectionChanged="Input_SelectionChanged" AutomationProperties.Name="输入设备"/>
-                            <ComboBox x:Name="CameraCombo" Grid.Column="1" Grid.Row="2" ItemsSource="{Binding CameraDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                            <ComboBox x:Name="CameraCombo" Grid.Column="1" Grid.Row="3" ItemsSource="{Binding CameraDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
                                       SelectedItem="{Binding SelectedCamera, Mode=TwoWay}" SelectionChanged="Camera_SelectionChanged" AutomationProperties.Name="摄像头"/>
                         </Grid>
                         <CheckBox Content="通信设备跟随普通设备" IsChecked="{Binding FollowCommunicationEndpoint, Mode=TwoWay}"
@@ -110,7 +114,7 @@
                             <ComboBox Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
                                       SelectedItem="{Binding SelectedCommunicationInput, Mode=TwoWay}" SelectionChanged="CommunicationInput_SelectionChanged" AutomationProperties.Name="通信输入设备"/>
                         </Grid>
-                        <TextBlock Text="修改会自动保存，点击场景或下方按钮才切换。摄像头只记录偏好，需在会议软件中选择。"
+                        <TextBlock Text="修改会自动保存，点击场景或下方按钮才切换。名称最多 12 个字。摄像头只记录偏好，需在会议软件中选择。"
                                    Style="{StaticResource HintText}" Margin="0,2,0,12"/>
                         <Button Style="{StaticResource AccentButton}" Content="{Binding ApplyButtonText}" Click="ApplySceneButton_Click"
                                 IsEnabled="{Binding CanApplySelectedScene}" Height="36"/>

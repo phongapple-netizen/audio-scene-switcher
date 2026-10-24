@@ -25,6 +25,12 @@ public sealed class DeviceSelectionChangedEventArgs(
     public DeviceInfo? Device { get; } = device;
 }
 
+public sealed class SceneRenameRequestedEventArgs(AudioScene scene, string name) : EventArgs
+{
+    public AudioScene Scene { get; } = scene;
+    public string Name { get; } = name;
+}
+
 public sealed class VolumeChangedEventArgs(double volume) : EventArgs
 {
     public double Volume { get; } = volume;
@@ -99,6 +105,7 @@ public partial class MainWindow : Window
 
     public event EventHandler<SceneApplyRequestedEventArgs>? SceneApplyRequested;
     public event EventHandler<DeviceSelectionChangedEventArgs>? DeviceSelectionChanged;
+    public event EventHandler<SceneRenameRequestedEventArgs>? SceneRenameRequested;
     public event EventHandler<VolumeChangedEventArgs>? VolumeChanged;
     public event EventHandler? CommunicationFollowChanged;
     public event EventHandler? RefreshRequested;
@@ -201,6 +208,24 @@ public partial class MainWindow : Window
         if (!IsInitialized || ViewModel.IsLoadingScene || !ViewModel.CanEdit || e.AddedItems.Count == 0) return;
         DeviceSelectionChanged?.Invoke(this, new DeviceSelectionChangedEventArgs(
             direction, role, e.AddedItems[0] as DeviceInfo));
+    }
+
+    private void SceneNameBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter) { CommitSceneName(); e.Handled = true; }
+        else if (e.Key == System.Windows.Input.Key.Escape) { SceneNameBox.Text = ViewModel.SelectedScene?.Name ?? ""; e.Handled = true; }
+    }
+
+    private void SceneNameBox_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => CommitSceneName();
+
+    /// <summary>A blank name is not saved: the box falls back to the current name.</summary>
+    public void CommitSceneName()
+    {
+        if (ViewModel.SelectedScene is not { } scene) return;
+        var name = SceneNameBox.Text.Trim();
+        if (name.Length == 0 || name == scene.Name || !ViewModel.CanEdit) { SceneNameBox.Text = scene.Name; return; }
+        SceneRenameRequested?.Invoke(this, new SceneRenameRequestedEventArgs(scene, name));
+        SceneNameBox.Text = scene.Name;
     }
 
     private void FollowCommunication_Changed(object sender, RoutedEventArgs e)

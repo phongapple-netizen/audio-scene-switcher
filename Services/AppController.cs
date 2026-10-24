@@ -44,6 +44,7 @@ public sealed class AppController : IDisposable
         _refreshTimer.Tick += RefreshTimer_Tick;
         _window.SceneApplyRequested += Window_SceneApplyRequested;
         _window.DeviceSelectionChanged += Window_DeviceSelectionChanged;
+        _window.SceneRenameRequested += Window_SceneRenameRequested;
         _window.VolumeChanged += Window_VolumeChanged;
         _window.MuteRequested += Window_MuteRequested;
         _window.CommunicationFollowChanged += Window_CommunicationFollowChanged;
@@ -109,7 +110,7 @@ public sealed class AppController : IDisposable
             var input = snapshot.GetNormalDefault(DeviceDirection.Input);
             _currentOutputId = output?.Id;
             _currentInputId = input?.Id;
-            if (initializeScenes && InitializeDefaultScenes(snapshot, cameras)) await QueueSaveAsync();
+            if (initializeScenes && DefaultSceneDetector.Apply(_configuration, snapshot, cameras)) await QueueSaveAsync();
             _updatingUi = true;
             try
             {
@@ -133,43 +134,6 @@ public sealed class AppController : IDisposable
         finally { _refreshGate.Release(); }
     }
 
-    private bool InitializeDefaultScenes(AudioSnapshot snapshot, IReadOnlyList<DeviceInfo> cameras)
-    {
-        if (_configuration.Scenes.Any(scene => scene.Output.NormalEndpointId is not null ||
-            scene.Input.NormalEndpointId is not null || scene.Camera.DeviceId is not null)) return false;
-        var defaultOutput = snapshot.GetNormalDefault(DeviceDirection.Output);
-        var defaultInput = snapshot.GetNormalDefault(DeviceDirection.Input);
-        var audigyOutput = Find(snapshot.Outputs, "Sound Blaster", "Audigy");
-        var audigyInput = Find(snapshot.Inputs, "Sound Blaster", "Audigy");
-        var monitorOutput = Find(snapshot.Outputs, "AMD HDMI", "High Definition Audio");
-        var emeetInput = Find(snapshot.Inputs, "EMEET");
-        var emeetCamera = Find(cameras, "EMEET");
-        foreach (var scene in _configuration.Scenes)
-        {
-            switch (scene.Id)
-            {
-                case "independent": AssignAudio(scene, audigyOutput, audigyInput); break;
-                case "monitor": AssignAudio(scene, monitorOutput, audigyInput ?? defaultInput); break;
-                case "meeting":
-                    AssignAudio(scene, audigyOutput ?? defaultOutput, emeetInput);
-                    scene.Camera.DeviceId = emeetCamera?.Id;
-                    scene.Camera.DisplayName = emeetCamera?.DisplayName;
-                    break;
-                case "fallback": AssignAudio(scene, defaultOutput, defaultInput); break;
-            }
-        }
-        _configuration.LastSceneId ??= "independent";
-        return true;
-    }
-
-    private static void AssignAudio(AudioScene scene, DeviceInfo? output, DeviceInfo? input)
-    {
-        scene.Output.NormalEndpointId = scene.Output.CommunicationsEndpointId = output?.Id;
-        scene.Input.NormalEndpointId = scene.Input.CommunicationsEndpointId = input?.Id;
-        scene.Output.FollowNormalForCommunications = scene.Input.FollowNormalForCommunications = true;
-    }
-    private static DeviceInfo? Find(IEnumerable<DeviceInfo> devices, params string[] parts) =>
-        devices.FirstOrDefault(device => parts.Any(part => device.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)));
     private static int CountCommunicationDifferences(AudioSnapshot snapshot) =>
         new[] { DeviceDirection.Output, DeviceDirection.Input }.Count(direction =>
             snapshot.GetDefaultId(direction, AudioEndpointRole.Console) != snapshot.GetDefaultId(direction, AudioEndpointRole.Communications) ||
@@ -238,6 +202,18 @@ public sealed class AppController : IDisposable
         }
         _window.ViewModel.RefreshSceneStates();
         _window.SetStatus($"“{scene.Name}”已保存；应用场景后才会切换音频设备");
+        await QueueSaveAsync();
+    }
+    private async void Window_SceneRenameRequested(object? sender, SceneRenameRequestedEventArgs e)
+    {
+        if (!CanAcceptEdit) return;
+        var name = e.Name.Trim();
+        if (name.Length == 0) return;
+        if (name.Length > AudioScene.MaxNameLength) name = name[..AudioScene.MaxNameLength];
+        var oldName = e.Scene.Name;
+        e.Scene.Name = name;
+        _window.ViewModel.RefreshSceneStates();
+        _window.SetStatus($"“{oldName}”已改名为“{name}”");
         await QueueSaveAsync();
     }
     private async void Window_CommunicationFollowChanged(object? sender, EventArgs e)
@@ -371,6 +347,7 @@ public sealed class AppController : IDisposable
         _meterTimer.Tick -= MeterTimer_Tick; _refreshTimer.Tick -= RefreshTimer_Tick;
         _window.SceneApplyRequested -= Window_SceneApplyRequested;
         _window.DeviceSelectionChanged -= Window_DeviceSelectionChanged;
+        _window.SceneRenameRequested -= Window_SceneRenameRequested;
         _window.VolumeChanged -= Window_VolumeChanged;
         _window.MuteRequested -= Window_MuteRequested;
         _window.CommunicationFollowChanged -= Window_CommunicationFollowChanged;

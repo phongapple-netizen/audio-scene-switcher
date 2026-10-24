@@ -43,6 +43,9 @@ internal static class Program
             ("input metering pauses while hidden or minimized", MeterVisibility),
             ("scene matching checks communications as well as normal roles", SceneMatchingChecksAllRoles),
             ("scenes with identical devices light only the last applied one", IdenticalScenesLightOnce),
+            ("scene rename trims, rejects blanks and persists", SceneRenamePersists),
+            ("first-run detection does not mistake onboard audio for a monitor", DetectorOnOnboardAudioMachine),
+            ("first-run detection pairs a dedicated card and webcam microphone", DetectorOnDedicatedCardMachine),
             ("semantic configuration damage is backed up", DamagedConfiguration),
             ("single instance activation uses the isolated current-user pipe", InstanceActivation)
         };
@@ -209,6 +212,82 @@ internal static class Program
         Require(ctx.Scene("twin").IsApplied && !ctx.Scene("follow").IsApplied, "未优先点亮最后切换的场景");
         Require(vm.AppliedSceneText == "正在使用：twin", "标题仍列出多个场景");
     }
+
+    private static async Task SceneRenamePersists()
+    {
+        await using var ctx = await Context.CreateAsync();
+        ctx.Window.ViewModel.SelectScene(ctx.Scene("split"));
+        var box = (TextBox)ctx.Window.FindName("SceneNameBox");
+        box.Text = "  耳机  "; ctx.Window.CommitSceneName();
+        Require(ctx.Scene("split").Name == "耳机" && box.Text == "耳机", "改名未生效或未去掉空格");
+        box.Text = "   "; ctx.Window.CommitSceneName();
+        Require(ctx.Scene("split").Name == "耳机" && box.Text == "耳机", "空名称被保存");
+        await ctx.Controller.PrepareForExitAsync();
+        var saved = await new ConfigurationService(ctx.ConfigPath).LoadAsync();
+        Require(saved.Scenes.Single(scene => scene.Id == "split").Name == "耳机", "改名没有保存");
+        Require(ctx.Audio.SetCount == 0, "改名切换了系统设备");
+    }
+
+    private static Task DetectorOnOnboardAudioMachine()
+    {
+        // Typical laptop/desktop: Realtek onboard audio, NVIDIA HDMI, a Logitech webcam, a Bluetooth headset.
+        var outputs = new[]
+        {
+            Device("realtek-out", "扬声器 (Realtek(R) Audio)", DeviceDirection.Output),
+            Device("rhd-out", "Speakers (Realtek High Definition Audio)", DeviceDirection.Output),
+            Device("nv-out", "DELL U2720Q (NVIDIA High Definition Audio)", DeviceDirection.Output),
+            Device("bt-out", "耳机 (WH-1000XM4)", DeviceDirection.Output)
+        };
+        var inputs = new[]
+        {
+            Device("realtek-in", "麦克风阵列 (Realtek(R) Audio)", DeviceDirection.Input),
+            Device("cam-in", "麦克风 (C920 HD Pro Webcam)", DeviceDirection.Input)
+        };
+        var config = AudioPanelConfiguration.CreateDefault();
+        Require(DefaultSceneDetector.Apply(config, Snapshot(outputs, inputs, "realtek-out", "realtek-in"),
+            [Device("cam", "C920 HD Pro Webcam", DeviceDirection.Camera)]), "首次识别没有执行");
+        var scenes = config.Scenes.ToDictionary(scene => scene.Id);
+        Require(scenes["monitor"].Output.NormalEndpointId == "nv-out", "没有识别出显示器音频");
+        Require(scenes["monitor"].Input.NormalEndpointId == "realtek-in", "显示器场景没有使用默认输入");
+        Require(scenes["independent"].Output.NormalEndpointId is null && scenes["independent"].Input.NormalEndpointId is null, "板载声卡被当成独立声卡");
+        Require(scenes["meeting"].Input.NormalEndpointId == "cam-in" && scenes["meeting"].Output.NormalEndpointId == "realtek-out", "会议场景识别错误");
+        Require(scenes["meeting"].Camera.DeviceId == "cam", "会议场景没有记录摄像头");
+        Require(scenes["fallback"].Output.NormalEndpointId == "realtek-out" && scenes["fallback"].Input.NormalEndpointId == "realtek-in", "备用场景没有用默认设备");
+        Require(!DefaultSceneDetector.Apply(config, Snapshot(outputs, inputs, "realtek-out", "realtek-in"), []), "已配置的场景被重新识别");
+        return Task.CompletedTask;
+    }
+
+    private static Task DetectorOnDedicatedCardMachine()
+    {
+        var outputs = new[]
+        {
+            Device("hdmi-out", "AMD HDMI Output (AMD High Definition Audio Device)", DeviceDirection.Output),
+            Device("sb-out", "扬声器 (Sound Blaster Audigy 5/Rx)", DeviceDirection.Output),
+            Device("asio-out", "Speakers 01 (ASIOVADPRO Driver)", DeviceDirection.Output, isVirtual: true)
+        };
+        var inputs = new[]
+        {
+            Device("sb-line", "线性输入 (Sound Blaster Audigy 5/Rx)", DeviceDirection.Input),
+            Device("sb-mic", "麦克风 (Sound Blaster Audigy 5/Rx)", DeviceDirection.Input),
+            Device("emeet-in", "麦克风 (EMEET SmartCam C60E 4K)", DeviceDirection.Input)
+        };
+        var config = AudioPanelConfiguration.CreateDefault();
+        DefaultSceneDetector.Apply(config, Snapshot(outputs, inputs, "asio-out", "sb-mic"),
+            [Device("emeet", "EMEET SmartCam C60E 4K", DeviceDirection.Camera)]);
+        var scenes = config.Scenes.ToDictionary(scene => scene.Id);
+        Require(scenes["independent"].Output.NormalEndpointId == "sb-out" && scenes["independent"].Input.NormalEndpointId == "sb-mic", "独立声卡识别错误");
+        Require(scenes["monitor"].Output.NormalEndpointId == "hdmi-out" && scenes["monitor"].Input.NormalEndpointId == "sb-mic", "显示器场景识别错误");
+        Require(scenes["meeting"].Output.NormalEndpointId == "sb-out" && scenes["meeting"].Input.NormalEndpointId == "emeet-in", "会议场景识别错误");
+        Require(DefaultSceneDetector.DevicePart("扬声器 (Realtek(R) Audio)") == "Realtek(R) Audio", "设备名解析错误");
+        return Task.CompletedTask;
+    }
+
+    private static DeviceInfo Device(string id, string name, DeviceDirection direction, bool isVirtual = false) =>
+        new(id, name, direction, DeviceState.Active) { IsVirtual = isVirtual };
+    private static AudioSnapshot Snapshot(DeviceInfo[] outputs, DeviceInfo[] inputs, string defaultOutput, string defaultInput) =>
+        new(outputs, inputs, (from direction in new[] { DeviceDirection.Output, DeviceDirection.Input }
+            from role in Enum.GetValues<AudioEndpointRole>() select (direction, role))
+            .ToDictionary(key => key, key => (string?)(key.direction == DeviceDirection.Output ? defaultOutput : defaultInput)));
 
     private static async Task DamagedConfiguration()
     {
