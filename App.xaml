@@ -3,54 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#10131A" />
-        <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#181D27" />
-        <SolidColorBrush x:Key="PanelBorderBrush" Color="#30394A" />
-        <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6FA" />
-        <SolidColorBrush x:Key="SecondaryTextBrush" Color="#AAB5C7" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#5A9CF8" />
-        <SolidColorBrush x:Key="SuccessBrush" Color="#47C88A" />
-        <SolidColorBrush x:Key="WarningBrush" Color="#F1B65A" />
-
-        <DataTemplate x:Key="DeviceItemTemplate">
-            <TextBlock Text="{Binding DisplayLabel}" Foreground="#151922" TextTrimming="CharacterEllipsis"/>
-        </DataTemplate>
-
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="Label">
-            <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
-        <Style TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
-            <Setter Property="Background" Value="#252D3B" />
-            <Setter Property="BorderBrush" Value="#3A4659" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="10,6" />
-            <Setter Property="Margin" Value="3" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="#151922" />
-            <Setter Property="Background" Value="#F3F6FA" />
-            <Setter Property="BorderBrush" Value="#3A4659" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="5,2" />
-            <Setter Property="Margin" Value="3" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}" />
-            <Setter Property="Margin" Value="3,3,3,3" />
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI" />
-        </Style>
-        <Style TargetType="Slider">
-            <Setter Property="Margin" Value="4,0,4,0" />
-        </Style>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

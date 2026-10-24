@@ -12,31 +12,55 @@ using DrawingFontStyle = System.Drawing.FontStyle;
 namespace AudioPanel;
 
 /// <summary>
-/// WPF application shell. The audio service is intentionally not created here yet;
-/// the tray shell only owns window visibility and application lifetime.
+/// Owns the single instance, tray UI, window visibility and application lifetime.
 /// </summary>
 public partial class App : System.Windows.Application
 {
     private Forms.NotifyIcon? _notifyIcon;
     private Icon? _trayIcon;
     private bool _exitRequested;
+    private bool _exiting;
     private AppController? _controller;
+    private SingleInstanceService? _instance;
+    private readonly StartupService _startup = new();
+    private readonly List<Forms.ToolStripMenuItem> _sceneMenuItems = [];
+    private Font? _menuOpenFont;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        var renderSmoke = e.Args.Contains("--render-smoke", StringComparer.OrdinalIgnoreCase);
+        var smoke = renderSmoke || e.Args.Contains("--smoke", StringComparer.OrdinalIgnoreCase);
+        var startInTray = e.Args.Contains("--startup", StringComparer.OrdinalIgnoreCase);
+        if (!smoke)
+        {
+            _instance = new SingleInstanceService();
+            if (!_instance.IsPrimary)
+            {
+                var activated = startInTray || await _instance.ActivateExistingAsync();
+                if (!activated) System.Windows.MessageBox.Show("面板正在启动或退出，请稍后从托盘打开。", "音频设备切换面板");
+                Shutdown(activated ? 0 : 1);
+                return;
+            }
+        }
 
         var window = new MainWindow();
         MainWindow = window;
         window.Closing += MainWindow_Closing;
 
-        CreateTrayIcon();
-        window.Show();
         _controller = new AppController(window);
-        var renderSmoke = e.Args.Contains("--render-smoke", StringComparer.OrdinalIgnoreCase);
-        if (renderSmoke || e.Args.Contains("--smoke", StringComparer.OrdinalIgnoreCase))
+        _controller.SceneApplyCompleted += Controller_SceneApplyCompleted;
+        window.ViewModel.PropertyChanged += (_, _) => UpdateTrayText();
+        CreateTrayIcon();
+        _instance?.StartListening(() =>
         {
-            _ = RunSmokeAsync(window, renderSmoke);
+            if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(ShowMainWindow);
+        });
+        if (!startInTray || renderSmoke) window.Show();
+        if (smoke)
+        {
+            _ = RunSmokeAsync(window, renderSmoke, startInTray);
         }
         else
         {
@@ -44,14 +68,16 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private async Task RunSmokeAsync(Window window, bool render)
+    private async Task RunSmokeAsync(Window window, bool render, bool startInTray)
     {
         var initialized = _controller is not null && await _controller.InitializeAsync();
         await Task.Delay(750);
+        if (initialized && startInTray && !render) initialized = !window.IsVisible;
         if (initialized && render)
         {
             initialized = RenderWindow(window);
         }
+        if (_controller is not null) await _controller.PrepareForExitAsync();
         _exitRequested = true;
         window.Close();
         Shutdown(initialized ? 0 : 1);
@@ -62,20 +88,27 @@ public partial class App : System.Windows.Application
         try
         {
             window.UpdateLayout();
+            if (window.Content is not FrameworkElement content) return false;
             var dpi = VisualTreeHelper.GetDpi(window);
-            var width = Math.Max(1, (int)Math.Ceiling(window.ActualWidth * dpi.DpiScaleX));
-            var height = Math.Max(1, (int)Math.Ceiling(window.ActualHeight * dpi.DpiScaleY));
+            var clientWidth = content.ActualWidth + content.Margin.Left + content.Margin.Right;
+            var clientHeight = content.ActualHeight + content.Margin.Top + content.Margin.Bottom;
+            var width = Math.Max(1, (int)Math.Ceiling(clientWidth * dpi.DpiScaleX));
+            var height = Math.Max(1, (int)Math.Ceiling(clientHeight * dpi.DpiScaleY));
             var bitmap = new RenderTargetBitmap(
                 width, height, 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
-            bitmap.Render(window);
+            var visual = new DrawingVisual();
+            using (var drawing = visual.RenderOpen())
+            {
+                drawing.DrawRectangle(window.Background, null, new Rect(0, 0, clientWidth, clientHeight));
+                drawing.DrawRectangle(new VisualBrush(content), null,
+                    new Rect(content.Margin.Left, content.Margin.Top, content.ActualWidth, content.ActualHeight));
+            }
+            bitmap.Render(visual);
 
             var path = Environment.GetEnvironmentVariable("AUDIO_PANEL_SCREENSHOT");
             if (string.IsNullOrWhiteSpace(path))
             {
-                path = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "AudioPanel",
-                    "ui-smoke.png");
+                path = Path.Combine(AppDataPaths.DirectoryPath, "ui-smoke.png");
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -95,16 +128,22 @@ public partial class App : System.Windows.Application
     {
         var menu = new Forms.ContextMenuStrip();
         var openItem = menu.Items.Add("打开面板", null, (_, _) => ShowMainWindow());
-        openItem.Font = new Font(openItem.Font, DrawingFontStyle.Bold);
+        _menuOpenFont = new Font(openItem.Font, DrawingFontStyle.Bold);
+        openItem.Font = _menuOpenFont;
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripLabel("快速切换场景")
         {
             ForeColor = DrawingColor.FromArgb(100, 100, 100)
         });
-        AddSceneMenuItem(menu, "独立声卡", "independent");
-        AddSceneMenuItem(menu, "显示器", "monitor");
-        AddSceneMenuItem(menu, "视频会议", "meeting");
-        AddSceneMenuItem(menu, "备用设备", "fallback");
+        menu.ShowItemToolTips = true;
+        var startupItem = new Forms.ToolStripMenuItem("开机启动");
+        startupItem.Click += (_, _) => ToggleStartup(startupItem);
+        RefreshStartupItem(startupItem);
+        menu.Opening += (_, _) =>
+        {
+            RefreshTrayScenes(menu);
+            RefreshStartupItem(startupItem);
+        };
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("刷新设备", null, (_, _) =>
         {
@@ -113,7 +152,8 @@ public partial class App : System.Windows.Application
                 window.RequestRefresh();
             }
         });
-        menu.Items.Add("退出", null, (_, _) => ExitApplication());
+        menu.Items.Add(startupItem);
+        menu.Items.Add("退出", null, async (_, _) => await ExitApplicationAsync());
 
         _trayIcon = AppIconFactory.CreateTrayIcon();
         _notifyIcon = new Forms.NotifyIcon
@@ -123,18 +163,81 @@ public partial class App : System.Windows.Application
             ContextMenuStrip = menu,
             Visible = true
         };
-        _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
+        _notifyIcon.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) ShowMainWindow(); };
+        UpdateTrayText();
     }
 
-    private void AddSceneMenuItem(Forms.ContextMenuStrip menu, string name, string sceneId)
+    private void RefreshStartupItem(Forms.ToolStripMenuItem item)
     {
-        menu.Items.Add(name, null, (_, _) =>
+        try
         {
-            if (MainWindow is MainWindow window && window.RequestSceneApply(sceneId))
+            item.Checked = _startup.IsEnabled;
+            item.Enabled = true;
+            item.ToolTipText = "当前账户登录后在托盘运行，不自动切换音频";
+        }
+        catch
+        {
+            item.Checked = false;
+            item.Enabled = false;
+            item.ToolTipText = "无法读取启动设置";
+        }
+    }
+
+    private void ToggleStartup(Forms.ToolStripMenuItem item)
+    {
+        try
+        {
+            var enabled = !_startup.IsEnabled;
+            _startup.SetEnabled(enabled);
+            RefreshStartupItem(item);
+            _notifyIcon?.ShowBalloonTip(2000, enabled ? "已开启开机启动" : "已关闭开机启动",
+                enabled ? "下次登录后，面板会自动在托盘运行。" : "面板将不再随登录自动启动。", Forms.ToolTipIcon.Info);
+        }
+        catch (Exception exception)
+        {
+            RefreshStartupItem(item);
+            System.Windows.MessageBox.Show($"设置开机启动失败：{exception.Message}", "音频设备切换面板",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void RefreshTrayScenes(Forms.ContextMenuStrip menu)
+    {
+        foreach (var item in _sceneMenuItems) { menu.Items.Remove(item); item.Dispose(); }
+        _sceneMenuItems.Clear();
+        if (MainWindow is not MainWindow window) return;
+        var insertAt = 3;
+        foreach (var scene in window.ViewModel.Scenes)
+        {
+            var item = new Forms.ToolStripMenuItem(scene.Name)
             {
-                ShowMainWindow();
-            }
-        });
+                Checked = scene.IsApplied,
+                Enabled = window.ViewModel.CanEdit && scene.IsReady,
+                ToolTipText = scene.StateText
+            };
+            var sceneId = scene.Id;
+            item.Click += (_, _) => { if (!window.RequestSceneApply(sceneId)) ShowMainWindow(); };
+            menu.Items.Insert(insertAt++, item);
+            _sceneMenuItems.Add(item);
+        }
+    }
+
+    private void UpdateTrayText()
+    {
+        if (_notifyIcon is null || MainWindow is not MainWindow window) return;
+        var text = "音频设备切换面板\n" + window.ViewModel.AppliedSceneText;
+        _notifyIcon.Text = text.Length > 63 ? text[..63] : text;
+    }
+
+    private void Controller_SceneApplyCompleted(object? sender, SceneApplyCompletedEventArgs e)
+    {
+        if (!e.FromTray || _notifyIcon is null || _exiting) return;
+        var success = e.Result.Status == SceneApplyStatus.Succeeded;
+        var saved = MainWindow is MainWindow window && window.ViewModel.StatusKind != Models.PanelStatusKind.Error;
+        _notifyIcon.ShowBalloonTip(2500, success && saved ? "场景已切换" : "场景需要注意",
+            success && saved ? $"已切换为“{e.Scene.Name}”" : MainWindow is MainWindow panel ? panel.ViewModel.StatusText : e.Result.Message,
+            success && saved ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        if (!success || !saved) ShowMainWindow();
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -153,7 +256,7 @@ public partial class App : System.Windows.Application
 
     private void ShowMainWindow()
     {
-        if (MainWindow is not Window window)
+        if (_exiting || MainWindow is not Window window)
         {
             return;
         }
@@ -163,12 +266,16 @@ public partial class App : System.Windows.Application
             window.WindowState = WindowState.Normal;
         }
 
+        if (window is AudioPanel.MainWindow panel) panel.AnchorToTray();
         window.Show();
         window.Activate();
     }
 
-    private void ExitApplication()
+    private async Task ExitApplicationAsync()
     {
+        if (_exiting) return;
+        _exiting = true;
+        if (_controller is not null) await _controller.PrepareForExitAsync();
         _exitRequested = true;
         DisposeTrayIcon();
         _controller?.Dispose();
@@ -181,6 +288,8 @@ public partial class App : System.Windows.Application
         DisposeTrayIcon();
         _controller?.Dispose();
         _controller = null;
+        _instance?.Dispose();
+        _instance = null;
         base.OnExit(e);
     }
 
@@ -188,10 +297,16 @@ public partial class App : System.Windows.Application
     {
         if (_notifyIcon is not null)
         {
+            var menu = _notifyIcon.ContextMenuStrip;
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _notifyIcon = null;
+            menu?.Dispose();
+            _sceneMenuItems.Clear();
         }
+
+        _menuOpenFont?.Dispose();
+        _menuOpenFont = null;
 
         _trayIcon?.Dispose();
         _trayIcon = null;

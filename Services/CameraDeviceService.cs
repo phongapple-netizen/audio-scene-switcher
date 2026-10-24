@@ -3,11 +3,18 @@ using Windows.Devices.Enumeration;
 
 namespace AudioPanel.Services;
 
-public sealed class CameraDeviceService
+public interface ICameraDeviceSource
 {
-    public async Task<IReadOnlyList<DeviceInfo>> GetCamerasAsync()
+    Task<IReadOnlyList<DeviceInfo>> GetCamerasAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed class CameraDeviceService : ICameraDeviceSource
+{
+    public async Task<IReadOnlyList<DeviceInfo>> GetCamerasAsync(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var devices = await DeviceInformation.FindAllAsync(DeviceClass.VideoCapture);
+        cancellationToken.ThrowIfCancellationRequested();
         return devices
             .Select(device => new DeviceInfo(
                 device.Id,

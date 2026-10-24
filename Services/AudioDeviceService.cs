@@ -20,6 +20,7 @@ public sealed class AudioSnapshot
 
     public IReadOnlyList<DeviceInfo> Outputs { get; }
     public IReadOnlyList<DeviceInfo> Inputs { get; }
+    public IReadOnlyDictionary<(DeviceDirection, AudioEndpointRole), string?> Defaults => _defaults;
 
     public string? GetDefaultId(DeviceDirection direction, AudioEndpointRole role) =>
         _defaults.TryGetValue((direction, role), out var id) ? id : null;
@@ -33,10 +34,18 @@ public sealed class AudioSnapshot
     }
 }
 
-public sealed class AudioDeviceService : IAudioEndpointController, IMMNotificationClient, IDisposable
+public sealed class AudioDeviceService : IAudioDeviceService, IMMNotificationClient
 {
     private readonly IMMDeviceEnumerator _enumerator;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private readonly Guid _volumeEventContext = Guid.NewGuid();
+    private IAudioEndpointVolume? _volume;
+    private EndpointVolumeCallback? _volumeCallback;
+    private string? _volumeEndpointId;
+    private IAudioMeterInformation? _meter;
+    private string? _meterEndpointId;
+    private IAudioClient? _captureAudioClient;
+    private IAudioCaptureClient? _captureClient;
 
     public AudioDeviceService()
     {
@@ -46,6 +55,7 @@ public sealed class AudioDeviceService : IAudioEndpointController, IMMNotificati
     }
 
     public event EventHandler? DevicesChanged;
+    public event EventHandler<EndpointVolumeChangedEventArgs>? VolumeChanged;
 
     public AudioSnapshot GetSnapshot()
     {
@@ -109,44 +119,164 @@ public sealed class AudioDeviceService : IAudioEndpointController, IMMNotificati
 
     public double GetVolume(string endpointId)
     {
-        var volume = Activate<IAudioEndpointVolume>(endpointId, CoreAudioIds.AudioEndpointVolume);
+        var volume = GetVolumeInterface(endpointId);
         try
         {
             ComResult.ThrowIfFailed(volume.GetMasterVolumeLevelScalar(out var level));
             return Math.Clamp(level, 0, 1);
         }
-        finally
-        {
-            ComResult.Release(volume);
-        }
+        catch (COMException) { ReleaseVolume(); throw; }
     }
 
     public void SetVolume(string endpointId, double value)
     {
-        var volume = Activate<IAudioEndpointVolume>(endpointId, CoreAudioIds.AudioEndpointVolume);
+        var volume = GetVolumeInterface(endpointId);
+        var context = _volumeEventContext;
+        try { ComResult.ThrowIfFailed(volume.SetMasterVolumeLevelScalar((float)Math.Clamp(value, 0, 1), ref context)); }
+        catch (COMException) { ReleaseVolume(); throw; }
+    }
+
+    public bool GetMute(string endpointId)
+    {
         try
         {
-            var context = Guid.Empty;
-            ComResult.ThrowIfFailed(volume.SetMasterVolumeLevelScalar(
-                (float)Math.Clamp(value, 0, 1), ref context));
+            ComResult.ThrowIfFailed(GetVolumeInterface(endpointId).GetMute(out var muted));
+            return muted;
         }
-        finally
+        catch (COMException) { ReleaseVolume(); throw; }
+    }
+    public void SetMute(string endpointId, bool muted)
+    {
+        var context = _volumeEventContext;
+        try { ComResult.ThrowIfFailed(GetVolumeInterface(endpointId).SetMute(muted, ref context)); }
+        catch (COMException) { ReleaseVolume(); throw; }
+    }
+    public void ObserveVolume(string? endpointId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (endpointId is null) { ReleaseVolume(); return; }
+        _ = GetVolumeInterface(endpointId);
+    }
+    private IAudioEndpointVolume GetVolumeInterface(string endpointId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_volume is not null && _volumeEndpointId == endpointId) return _volume;
+        ReleaseVolume();
+        var volume = Activate<IAudioEndpointVolume>(endpointId, CoreAudioIds.AudioEndpointVolume);
+        var callback = new EndpointVolumeCallback(data =>
         {
-            ComResult.Release(volume);
+            if (!_disposed && data.EventContext != _volumeEventContext)
+                VolumeChanged?.Invoke(this, new(endpointId, Math.Clamp(data.MasterVolume, 0, 1), data.Muted));
+        });
+        try { ComResult.ThrowIfFailed(volume.RegisterControlChangeNotify(callback)); }
+        catch { ComResult.Release(volume); throw; }
+        _volume = volume; _volumeCallback = callback; _volumeEndpointId = endpointId;
+        return volume;
+    }
+    private void ReleaseVolume()
+    {
+        if (_volume is not null)
+        {
+            try { if (_volumeCallback is not null) _volume.UnregisterControlChangeNotify(_volumeCallback); }
+            catch (COMException) { }
+            ComResult.Release(_volume);
         }
+        _volume = null; _volumeCallback = null; _volumeEndpointId = null;
     }
 
     public double GetPeakValue(string endpointId)
     {
-        var meter = Activate<IAudioMeterInformation>(endpointId, CoreAudioIds.AudioMeterInformation);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_meter is null || _meterEndpointId != endpointId)
+        {
+            ReleaseMeter();
+            _meter = Activate<IAudioMeterInformation>(endpointId, CoreAudioIds.AudioMeterInformation);
+            _meterEndpointId = endpointId;
+            StartCaptureStream(endpointId);
+        }
         try
         {
-            ComResult.ThrowIfFailed(meter.GetPeakValue(out var peak));
+            DrainCaptureStream();
+            ComResult.ThrowIfFailed(_meter.GetPeakValue(out var peak));
             return Math.Clamp(peak, 0, 1);
+        }
+        catch
+        {
+            ReleaseMeter();
+            throw;
+        }
+    }
+
+    public void ReleaseMeter()
+    {
+        ComResult.Release(_meter);
+        _meter = null; _meterEndpointId = null;
+        ReleaseCaptureStream();
+    }
+
+    /// <summary>
+    /// A capture endpoint's meter reads 0 unless some client is recording from it,
+    /// so keep a shared-mode stream open while the meter is in use. Failure (e.g. microphone
+    /// privacy blocked) is not fatal: the meter then only moves when another app records.
+    /// </summary>
+    private void StartCaptureStream(string endpointId)
+    {
+        IAudioClient? client = null;
+        var format = IntPtr.Zero;
+        try
+        {
+            client = Activate<IAudioClient>(endpointId, CoreAudioIds.AudioClient);
+            ComResult.ThrowIfFailed(client.GetMixFormat(out format));
+            ComResult.ThrowIfFailed(client.Initialize(0, 0, 10_000_000, 0, format, IntPtr.Zero)); // shared mode, 1 s buffer
+            var serviceId = CoreAudioIds.AudioCaptureClient;
+            ComResult.ThrowIfFailed(client.GetService(ref serviceId, out var service));
+            _captureClient = (IAudioCaptureClient)service;
+            ComResult.ThrowIfFailed(client.Start());
+            _captureAudioClient = client;
+            client = null;
+        }
+        catch (Exception exception) when (exception is COMException or InvalidCastException or UnauthorizedAccessException)
+        {
+            ComResult.Release(_captureClient);
+            _captureClient = null;
         }
         finally
         {
-            ComResult.Release(meter);
+            if (format != IntPtr.Zero) Marshal.FreeCoTaskMem(format);
+            ComResult.Release(client);
+        }
+    }
+
+    private void DrainCaptureStream()
+    {
+        if (_captureClient is null) return;
+        while (_captureClient.GetNextPacketSize(out var frames) >= 0 && frames > 0)
+        {
+            if (_captureClient.GetBuffer(out _, out var read, out _, out _, out _) < 0) return;
+            _captureClient.ReleaseBuffer(read);
+        }
+    }
+
+    private void ReleaseCaptureStream()
+    {
+        if (_captureAudioClient is not null)
+        {
+            try { _captureAudioClient.Stop(); }
+            catch (COMException) { }
+        }
+        ComResult.Release(_captureClient);
+        ComResult.Release(_captureAudioClient);
+        _captureClient = null; _captureAudioClient = null;
+    }
+
+    [ComVisible(true)]
+    [ClassInterface(ClassInterfaceType.None)]
+    private sealed class EndpointVolumeCallback(Action<AudioVolumeNotification> notify) : IAudioEndpointVolumeCallback
+    {
+        public void OnNotify(IntPtr notificationData)
+        {
+            if (notificationData == IntPtr.Zero) return;
+            notify(Marshal.PtrToStructure<AudioVolumeNotification>(notificationData));
         }
     }
 
@@ -288,6 +418,8 @@ public sealed class AudioDeviceService : IAudioEndpointController, IMMNotificati
         }
 
         _disposed = true;
+        ReleaseMeter();
+        ReleaseVolume();
         try
         {
             _enumerator.UnregisterEndpointNotificationCallback(this);

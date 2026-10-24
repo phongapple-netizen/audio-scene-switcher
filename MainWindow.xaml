@@ -1,99 +1,176 @@
 <Window x:Class="AudioPanel.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="音频设备切换面板"
-        Width="440" Height="640" MinWidth="400" MinHeight="560"
-        Background="{StaticResource WindowBackgroundBrush}"
-        WindowStartupLocation="CenterScreen"
-        ShowInTaskbar="False">
-    <Border Padding="12">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        xmlns:models="clr-namespace:AudioPanel.Models"
+        Title="音频设备切换面板" Width="400" MinWidth="360" SizeToContent="Height" ResizeMode="CanMinimize"
+        Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource PrimaryTextBrush}"
+        FontFamily="Microsoft YaHei UI" FontSize="13"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
+        WindowStartupLocation="Manual" ShowInTaskbar="False">
+    <Grid Margin="16,14,16,14">
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <ScrollViewer x:Name="MainScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel>
-                <DockPanel Margin="0,0,0,10">
-                    <Button DockPanel.Dock="Right" Content="刷新" Click="RefreshButton_Click" Padding="9,4"/>
-                    <StackPanel>
-                        <TextBlock Text="音频设备切换面板" FontSize="18" FontWeight="SemiBold"/>
-                        <TextBlock Text="本机设备场景切换" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11"/>
+                <!-- 标题 -->
+                <DockPanel Margin="0,0,0,14">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE72C;" VerticalAlignment="Center"
+                            ToolTip="刷新设备" AutomationProperties.Name="刷新设备"
+                            Click="RefreshButton_Click" IsEnabled="{Binding CanRefresh}"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="音频设备切换" FontSize="18" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AppliedSceneText}" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"
+                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
                     </StackPanel>
                 </DockPanel>
 
-                <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,10">
+                <!-- 当前设备 -->
+                <TextBlock Text="当前设备" Style="{StaticResource SectionCaption}"/>
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,16">
                     <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="输出" Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBlock Grid.Row="1" Text="输入" Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBlock Grid.Row="2" Text="摄像头" Foreground="{StaticResource SecondaryTextBrush}"/>
-                        <TextBlock Grid.Column="1" Grid.Row="0" Text="{Binding CurrentOutputText}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Column="1" Grid.Row="1" Text="{Binding CurrentInputText}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Grid.Column="1" Grid.Row="2" Text="{Binding CurrentCameraText}" TextTrimming="CharacterEllipsis"/>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource IconText}" Text="&#xE767;" Foreground="{StaticResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Left" ToolTip="输出"/>
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentOutputText}" ToolTip="{Binding CurrentOutputText}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource IconText}" Text="&#xE720;" Foreground="{StaticResource SecondaryTextBrush}"
+                                   HorizontalAlignment="Left" Margin="0,8,0,0" ToolTip="输入"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CurrentInputText}" ToolTip="{Binding CurrentInputText}"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,8,0,0"/>
                     </Grid>
                 </Border>
 
-                <TextBlock Text="场景" FontWeight="SemiBold" Margin="2,0,0,2"/>
-                <ItemsControl ItemsSource="{Binding Scenes}" Margin="0,0,0,8">
+                <!-- 场景：点击即切换，右上角铅笔编辑 -->
+                <TextBlock Text="场景" Style="{StaticResource SectionCaption}"/>
+                <ItemsControl ItemsSource="{Binding Scenes}" Margin="-4,-4,-4,8" Focusable="False">
                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate><Button Content="{Binding Name}" Tag="{Binding}" Click="SceneButton_Click" Height="36"/></DataTemplate>
+                        <DataTemplate>
+                            <Grid Margin="4">
+                                <Button Tag="{Binding}" Click="SceneButton_Click" Style="{StaticResource SceneTileStyle}"
+                                        AutomationProperties.Name="{Binding Name}" ToolTip="{Binding StateText}"
+                                        IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <TextBlock Style="{StaticResource SceneIconStyle}"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding StateText}" Style="{StaticResource SceneStateTextStyle}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource TileEditButton}" Content="&#xE70F;" Tag="{Binding}"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,5,5,0"
+                                        Click="EditSceneButton_Click" ToolTip="编辑此场景的设备"
+                                        AutomationProperties.Name="{Binding Name, StringFormat=编辑{0}}"
+                                        IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                            </Grid>
+                        </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <TextBlock Text="设备选择" FontWeight="SemiBold" Margin="2,2,0,2"/>
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="56"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                    <Label Grid.Row="0" Content="输出"/>
-                    <Label Grid.Row="1" Content="输入"/>
-                    <Label Grid.Row="2" Content="摄像头"/>
-                    <ComboBox Grid.Column="1" Grid.Row="0" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}" SelectedItem="{Binding SelectedOutput, Mode=TwoWay}" SelectionChanged="Output_SelectionChanged"/>
-                    <ComboBox Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}" SelectedItem="{Binding SelectedInput, Mode=TwoWay}" SelectionChanged="Input_SelectionChanged"/>
-                    <ComboBox Grid.Column="1" Grid.Row="2" ItemsSource="{Binding CameraDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}" SelectedItem="{Binding SelectedCamera, Mode=TwoWay}" SelectionChanged="Camera_SelectionChanged"/>
-                </Grid>
-
-                <TextBlock Text="下拉框用于编辑当前场景；点击“应用选中场景”后才会切换系统设备。"
-                           Foreground="{StaticResource SecondaryTextBrush}" FontSize="10"
-                           TextWrapping="Wrap" Margin="59,2,4,2"/>
-
-                <CheckBox Content="通信端点跟随普通端点" IsChecked="{Binding FollowCommunicationEndpoint, Mode=TwoWay}" Checked="FollowCommunication_Changed" Unchecked="FollowCommunication_Changed"/>
-
-                <Grid Margin="0,0,0,4">
-                    <Grid.Style>
-                        <Style TargetType="Grid">
-                            <Setter Property="Visibility" Value="Visible"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding FollowCommunicationEndpoint}" Value="True">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="78"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                    <Label Grid.Row="0" Content="通信输出"/>
-                    <Label Grid.Row="1" Content="通信输入"/>
-                    <ComboBox Grid.Column="1" Grid.Row="0" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}" SelectedItem="{Binding SelectedCommunicationOutput, Mode=TwoWay}" SelectionChanged="CommunicationOutput_SelectionChanged"/>
-                    <ComboBox Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}" SelectedItem="{Binding SelectedCommunicationInput, Mode=TwoWay}" SelectionChanged="CommunicationInput_SelectionChanged"/>
-                </Grid>
-
-                <Border Background="{StaticResource PanelBackgroundBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="8" Margin="0,8,0,8">
-                    <StackPanel>
-                        <DockPanel LastChildFill="False">
-                            <TextBlock Text="主音量" VerticalAlignment="Center"/>
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding VolumeText}" Foreground="{StaticResource SecondaryTextBrush}"/>
-                        </DockPanel>
-                        <Slider Minimum="0" Maximum="1" Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ValueChanged="Volume_ValueChanged"/>
-                        <DockPanel Margin="0,6,0,0" LastChildFill="False">
-                            <TextBlock Text="输入电平" VerticalAlignment="Center"/>
-                            <TextBlock DockPanel.Dock="Right" Text="{Binding InputLevelText}" Foreground="{StaticResource SecondaryTextBrush}"/>
-                        </DockPanel>
-                        <ProgressBar Height="7" Minimum="0" Maximum="1" Value="{Binding InputLevel}" IsHitTestVisible="False"/>
+                <!-- 编辑区（默认折叠） -->
+                <ToggleButton Style="{StaticResource SectionToggle}" IsChecked="{Binding IsEditorOpen, Mode=TwoWay}"
+                              Content="{Binding SelectedSceneText}" AutomationProperties.Name="展开或收起场景编辑"/>
+                <Border x:Name="EditorCard" Style="{StaticResource CardStyle}" Margin="0,4,0,4"
+                        Visibility="{Binding IsEditorOpen, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel IsEnabled="{Binding CanEdit}">
+                        <TextBlock Text="{Binding SelectedSceneStateText}" TextWrapping="Wrap" Foreground="{StaticResource WarningBrush}" Margin="0,0,0,10">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock"><Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedSceneNeedsAttention}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                                </Style.Triggers></Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="56"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Text="输出" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Row="1" Text="输入" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Row="2" Text="摄像头" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox x:Name="OutputCombo" Grid.Column="1" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                                      SelectedItem="{Binding SelectedOutput, Mode=TwoWay}" SelectionChanged="Output_SelectionChanged" AutomationProperties.Name="输出设备"/>
+                            <ComboBox x:Name="InputCombo" Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                                      SelectedItem="{Binding SelectedInput, Mode=TwoWay}" SelectionChanged="Input_SelectionChanged" AutomationProperties.Name="输入设备"/>
+                            <ComboBox x:Name="CameraCombo" Grid.Column="1" Grid.Row="2" ItemsSource="{Binding CameraDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                                      SelectedItem="{Binding SelectedCamera, Mode=TwoWay}" SelectionChanged="Camera_SelectionChanged" AutomationProperties.Name="摄像头"/>
+                        </Grid>
+                        <CheckBox Content="通信设备跟随普通设备" IsChecked="{Binding FollowCommunicationEndpoint, Mode=TwoWay}"
+                                  Checked="FollowCommunication_Changed" Unchecked="FollowCommunication_Changed" Margin="56,2,0,8"/>
+                        <Grid Margin="0,2,0,0">
+                            <Grid.Style><Style TargetType="Grid"><Style.Triggers>
+                                <DataTrigger Binding="{Binding FollowCommunicationEndpoint}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                            </Style.Triggers></Style></Grid.Style>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="56"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                            <TextBlock Text="通信输出" Style="{StaticResource FieldLabel}"/>
+                            <TextBlock Grid.Row="1" Text="通信输入" Style="{StaticResource FieldLabel}"/>
+                            <ComboBox Grid.Column="1" ItemsSource="{Binding OutputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                                      SelectedItem="{Binding SelectedCommunicationOutput, Mode=TwoWay}" SelectionChanged="CommunicationOutput_SelectionChanged" AutomationProperties.Name="通信输出设备"/>
+                            <ComboBox Grid.Column="1" Grid.Row="1" ItemsSource="{Binding InputDevices}" ItemTemplate="{StaticResource DeviceItemTemplate}"
+                                      SelectedItem="{Binding SelectedCommunicationInput, Mode=TwoWay}" SelectionChanged="CommunicationInput_SelectionChanged" AutomationProperties.Name="通信输入设备"/>
+                        </Grid>
+                        <TextBlock Text="修改会自动保存，点击场景或下方按钮才切换。摄像头只记录偏好，需在会议软件中选择。"
+                                   Style="{StaticResource HintText}" Margin="0,2,0,12"/>
+                        <Button Style="{StaticResource AccentButton}" Content="{Binding ApplyButtonText}" Click="ApplySceneButton_Click"
+                                IsEnabled="{Binding CanApplySelectedScene}" Height="36"/>
                     </StackPanel>
                 </Border>
-
-                <Button Content="应用选中场景" Click="ApplySceneButton_Click" Height="38" Background="{StaticResource AccentBrush}" Foreground="White" BorderThickness="0"/>
-                <TextBlock Text="状态" Foreground="{StaticResource SecondaryTextBrush}" Margin="3,7,0,0"/>
-                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="{StaticResource SecondaryTextBrush}" Margin="3,1,0,0"/>
             </StackPanel>
         </ScrollViewer>
-    </Border>
+
+        <!-- 音量与电平 -->
+        <Border Grid.Row="1" Style="{StaticResource CardStyle}" Margin="0,10,0,0" Padding="8,8,14,10">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                <Button Style="{StaticResource IconButton}" Click="MuteButton_Click" IsEnabled="{Binding CanAdjustVolume}"
+                        ToolTip="{Binding MuteButtonText}" AutomationProperties.Name="{Binding MuteButtonText}">
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="&#xE767;"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMuted}" Value="True">
+                                        <Setter Property="Text" Value="&#xE74F;"/>
+                                        <Setter Property="Foreground" Value="{StaticResource WarningBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Button>
+                <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="1" SmallChange="0.01" LargeChange="0.1"
+                        Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding CanAdjustVolume}"
+                        ValueChanged="Volume_ValueChanged" VerticalAlignment="Center" Margin="6,0,10,0"
+                        ToolTip="系统输出音量" AutomationProperties.Name="系统输出音量"/>
+                <TextBlock Grid.Column="2" Text="{Binding VolumeText}" Foreground="{StaticResource SecondaryTextBrush}"
+                           MinWidth="38" TextAlignment="Right" VerticalAlignment="Center"/>
+
+                <TextBlock Grid.Row="1" Style="{StaticResource IconText}" Text="&#xE720;" Foreground="{StaticResource TertiaryTextBrush}"
+                           Margin="0,6,0,0" ToolTip="麦克风输入电平"/>
+                <ProgressBar Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="1" Value="{Binding InputLevel}" IsHitTestVisible="False"
+                             VerticalAlignment="Center" Margin="15,6,19,0" AutomationProperties.Name="系统输入电平"/>
+                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding InputLevelText}" Foreground="{StaticResource TertiaryTextBrush}"
+                           MinWidth="38" TextAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- 状态 -->
+        <StackPanel Grid.Row="2" Margin="2,10,2,0">
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" FontSize="12">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Foreground" Value="{StaticResource SecondaryTextBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StatusKind}" Value="{x:Static models:PanelStatusKind.Success}"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding StatusKind}" Value="{x:Static models:PanelStatusKind.Warning}"><Setter Property="Foreground" Value="{StaticResource WarningBrush}"/></DataTrigger>
+                            <DataTrigger Binding="{Binding StatusKind}" Value="{x:Static models:PanelStatusKind.Error}"><Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/></DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+            <TextBlock Text="{Binding DeviceSummaryText}" Style="{StaticResource HintText}" FontSize="11" Margin="0,3,0,0"/>
+        </StackPanel>
+    </Grid>
 </Window>

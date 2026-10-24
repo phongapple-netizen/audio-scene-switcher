@@ -52,7 +52,7 @@ public sealed class SceneApplyService
 
         try
         {
-            return ApplyCore(scene);
+            return ApplyCore(scene.Clone());
         }
         finally
         {
@@ -115,6 +115,12 @@ public sealed class SceneApplyService
                         $"{target.Direction}/{target.Role} 在切换期间被其他程序修改");
                 }
 
+                // A write can take effect even when it throws or verification
+                // fails. Track the attempt first; rollback checks its actual state.
+                changed.Add((target, previous));
+                results.Add(new RoleApplyResult(
+                    target.Direction, target.Role, previous, target.EndpointId!,
+                    Changed: true, Verified: false, "写入或核验未完成"));
                 _audio.SetDefaultEndpoint(target.EndpointId!, target.Role);
                 var verified = _audio.TryGetDefaultEndpointId(target.Direction, target.Role);
                 if (verified != target.EndpointId)
@@ -123,11 +129,15 @@ public sealed class SceneApplyService
                         $"{target.Direction}/{target.Role} 写入后回读不一致");
                 }
 
-                changed.Add((target, previous));
-                results.Add(new RoleApplyResult(
+                results[^1] = new RoleApplyResult(
                     target.Direction, target.Role, previous, target.EndpointId!,
-                    Changed: true, Verified: true, "切换并回读成功"));
+                    Changed: true, Verified: true, "切换并回读成功");
             }
+
+            // Earlier roles may change externally while later roles are written.
+            foreach (var target in targets)
+                if (_audio.TryGetDefaultEndpointId(target.Direction, target.Role) != target.EndpointId)
+                    throw new SceneConflictException($"{target.Direction}/{target.Role} 在最终核验时已变化");
 
             return new SceneApplyResult
             {
@@ -145,7 +155,7 @@ public sealed class SceneApplyService
                     ? SceneApplyStatus.Failed
                     : SceneApplyStatus.Partial;
             var rollbackMessage = rollbackFailures.Count == 0
-                ? "已恢复本次切换前的默认角色"
+                ? changed.Count == 0 ? "未写入任何角色" : "本次已写入的角色已恢复"
                 : $"有 {rollbackFailures.Count} 个角色无法恢复";
 
             return new SceneApplyResult
@@ -163,22 +173,22 @@ public sealed class SceneApplyService
         var failures = new List<RoleApplyResult>();
         foreach (var (target, previous) in changedRoles.Reverse())
         {
-            if (string.IsNullOrWhiteSpace(previous))
-            {
-                failures.Add(new RoleApplyResult(
-                    target.Direction, target.Role, previous, target.EndpointId!,
-                    Changed: true, Verified: false, "原端点为空，无法恢复"));
-                continue;
-            }
-
             try
             {
                 var current = _audio.TryGetDefaultEndpointId(target.Direction, target.Role);
+                if (current == previous) continue; // Failed before writing, or already restored.
                 if (current != target.EndpointId)
                 {
                     failures.Add(new RoleApplyResult(
                         target.Direction, target.Role, previous, target.EndpointId!,
                         Changed: true, Verified: false, "检测到外部修改，未覆盖用户选择"));
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(previous))
+                {
+                    failures.Add(new RoleApplyResult(target.Direction, target.Role, previous, target.EndpointId!,
+                        Changed: true, Verified: false, "原端点为空，无法恢复"));
                     continue;
                 }
 

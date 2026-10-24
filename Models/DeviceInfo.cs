@@ -43,6 +43,7 @@ public sealed class DeviceInfo : INotifyPropertyChanged
 
             OnPropertyChanged(nameof(IsAvailable));
             OnPropertyChanged(nameof(StatusText));
+            OnPropertyChanged(nameof(RoleText));
         }
     }
 
@@ -54,6 +55,7 @@ public sealed class DeviceInfo : INotifyPropertyChanged
             if (SetField(ref _isDefault, value))
             {
                 OnPropertyChanged(nameof(DisplayLabel));
+                OnPropertyChanged(nameof(RoleText));
             }
         }
     }
@@ -66,6 +68,7 @@ public sealed class DeviceInfo : INotifyPropertyChanged
             if (SetField(ref _isDefaultCommunications, value))
             {
                 OnPropertyChanged(nameof(DisplayLabel));
+                OnPropertyChanged(nameof(RoleText));
             }
         }
     }
@@ -92,6 +95,13 @@ public sealed class DeviceInfo : INotifyPropertyChanged
             return DisplayName + role;
         }
     }
+
+    /// <summary>Short tag shown beside the name in device pickers.</summary>
+    public string RoleText => !IsAvailable && State != DeviceState.Unknown
+        ? StatusText
+        : IsDefaultCommunications
+            ? IsDefault ? "默认 · 通信" : "通信"
+            : IsDefault ? "默认" : string.Empty;
 
     public string StatusText => State switch
     {

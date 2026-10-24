@@ -151,8 +151,8 @@ internal interface IMMNotificationClient
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IAudioEndpointVolume
 {
-    [PreserveSig] int RegisterControlChangeNotify(IntPtr notify);
-    [PreserveSig] int UnregisterControlChangeNotify(IntPtr notify);
+    [PreserveSig] int RegisterControlChangeNotify(IAudioEndpointVolumeCallback notify);
+    [PreserveSig] int UnregisterControlChangeNotify(IAudioEndpointVolumeCallback notify);
     [PreserveSig] int GetChannelCount(out uint channelCount);
     [PreserveSig] int SetMasterVolumeLevel(float levelDb, ref Guid eventContext);
     [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
@@ -171,6 +171,23 @@ internal interface IAudioEndpointVolume
     [PreserveSig] int GetVolumeRange(out float minDb, out float maxDb, out float incrementDb);
 }
 
+[ComVisible(true)]
+[Guid("657804FA-D6AD-4496-8A60-352752AF4F89")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioEndpointVolumeCallback
+{
+    void OnNotify(IntPtr notificationData);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct AudioVolumeNotification
+{
+    public Guid EventContext;
+    [MarshalAs(UnmanagedType.Bool)] public bool Muted;
+    public float MasterVolume;
+    public uint ChannelCount;
+}
+
 [ComImport]
 [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -180,6 +197,35 @@ internal interface IAudioMeterInformation
     [PreserveSig] int GetMeteringChannelCount(out int channelCount);
     [PreserveSig] int GetChannelsPeakValues(int channelCount, [Out] float[] peaks);
     [PreserveSig] int QueryHardwareSupport(out int hardwareSupportMask);
+}
+
+[ComImport]
+[Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioClient
+{
+    [PreserveSig] int Initialize(int shareMode, uint streamFlags, long bufferDuration, long periodicity, IntPtr format, IntPtr audioSessionGuid);
+    [PreserveSig] int GetBufferSize(out uint frameCount);
+    [PreserveSig] int GetStreamLatency(out long latency);
+    [PreserveSig] int GetCurrentPadding(out uint frameCount);
+    [PreserveSig] int IsFormatSupported(int shareMode, IntPtr format, out IntPtr closestMatch);
+    [PreserveSig] int GetMixFormat(out IntPtr format);
+    [PreserveSig] int GetDevicePeriod(out long defaultPeriod, out long minimumPeriod);
+    [PreserveSig] int Start();
+    [PreserveSig] int Stop();
+    [PreserveSig] int Reset();
+    [PreserveSig] int SetEventHandle(IntPtr eventHandle);
+    [PreserveSig] int GetService(ref Guid interfaceId, [MarshalAs(UnmanagedType.IUnknown)] out object service);
+}
+
+[ComImport]
+[Guid("C8ADBD64-E71E-48A0-A4DE-185C395CD317")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioCaptureClient
+{
+    [PreserveSig] int GetBuffer(out IntPtr data, out uint frameCount, out uint flags, out ulong devicePosition, out ulong qpcPosition);
+    [PreserveSig] int ReleaseBuffer(uint frameCount);
+    [PreserveSig] int GetNextPacketSize(out uint frameCount);
 }
 
 [ComImport]
@@ -214,6 +260,8 @@ internal static class CoreAudioIds
 
     public static readonly Guid AudioEndpointVolume = new("5CDF2C82-841E-4546-9722-0CF74078229A");
     public static readonly Guid AudioMeterInformation = new("C02216F6-8C67-4B5B-9D00-D008E73E0064");
+    public static readonly Guid AudioClient = new("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2");
+    public static readonly Guid AudioCaptureClient = new("C8ADBD64-E71E-48A0-A4DE-185C395CD317");
     public static readonly Guid MMDeviceEnumerator = new("BCDE0395-E52F-467C-8E3D-C4579291692E");
     public static readonly Guid PolicyConfigClient = new("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9");
     public static readonly PropertyKey FriendlyName =
